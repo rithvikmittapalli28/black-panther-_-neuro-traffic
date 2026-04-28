@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Neuro-Traffic Dashboard</title>
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+</head>
+
+<body>
+
+  <h1>🚑 Live Emergency Dashboard</h1>
+
+  <!-- 📊 PATIENT DASHBOARD -->
+  <div id="dashboard">
+    <h2>📊 Patient Monitor</h2>
+
+    <p><b>Condition:</b> <span id="condition"></span></p>
+    <p><b>Heart Rate:</b> <span id="heartRate"></span> bpm</p>
+    <p><b>Oxygen:</b> <span id="oxygen"></span>%</p>
+    <p><b>Status:</b> <span id="status"></span></p>
+
+    <hr>
+
+    <p><b>Hospital:</b> <span id="hospital"></span></p>
+  </div>
+
+  <!-- 🚑 TRACKING SECTION (NEW 🔥) -->
+  <div id="tracking">
+    <h2>🚑 Ambulance Status</h2>
+    <p id="trackingText">Dispatching ambulance...</p>
+  </div>
+
+  <!-- 🗺️ MAP -->
+  <div id="map"></div>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+
+</body>
+</html>
