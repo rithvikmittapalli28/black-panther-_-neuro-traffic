@@ -34,20 +34,32 @@ const ambulanceIcon = L.icon({
 // HOSPITAL SELECTION
 // -----------------------------
 function selectHospital() {
-  // 🔥 STEP 1: FILTER BY CONDITION
-  let eligible = hospitals.filter(h =>
+
+  // STEP 1: find specialists
+  let specialists = hospitals.filter(h =>
     h.specialties.includes(patient.condition)
   );
 
-  // ⚠️ fallback if nothing found
-  if (eligible.length === 0) {
-    eligible = hospitals;
-  }
+  // STEP 2: include multispeciality as fallback
+  let multis = hospitals.filter(h =>
+    h.specialties.includes("multispeciality")
+  );
 
-  // 🔥 STEP 2: PICK BEST FROM FILTERED
+  let eligible = specialists.length > 0
+    ? [...specialists, ...multis]
+    : hospitals;
+
+  // STEP 3: scoring
   return eligible.reduce((best, h) => {
     let distance = getDistance(h);
-    let score = distance + h.waitTime - h.beds;
+
+    let isMulti = h.specialties.includes("multispeciality");
+
+    let score =
+      (distance * 2) +
+      (h.waitTime * 1.5) -
+      (h.beds * 2) +
+      (isMulti ? 3 : 0); // penalty for multispeciality
 
     return (!best || score < best.score) ? { ...h, score } : best;
   }, null);
@@ -215,7 +227,7 @@ function animate() {
       step = i; // keep ETA working
     }
 
-  }, 150); // speed control (increase for slower)
+  }, 50); // speed control (increase for slower)
 }
 
 
