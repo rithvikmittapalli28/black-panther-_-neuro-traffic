@@ -1,4 +1,4 @@
-const hospitals = [
+let hospitals = [
   {
     name: "City General Hospital",
     lat: 12.9716,
