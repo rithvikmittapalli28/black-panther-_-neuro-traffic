@@ -7,40 +7,63 @@ const patient = {
   lng: 77.5950
 };
 
-document.getElementById("condition").innerText = patient.condition;
-
+document.getElementById("condition") && (document.getElementById("condition").innerText = patient.condition);
 
 // -----------------------------
-// GLOBAL VARIABLES
+// GLOBALS
 // -----------------------------
-let map, ambulanceMarker, path = [], step = 0;
+let map, ambulanceMarker;
+let path = [], step = 0;
+
 let heartRate = 80, oxygen = 98;
 let currentHospital;
 
 let trafficSignals = [];
 let signalMarkers = [];
-
+let hospitalMarkers = [];
 
 // -----------------------------
-// 🚑 AMBULANCE ICON
+// 🚑 ICON
 // -----------------------------
 const ambulanceIcon = L.icon({
   iconUrl: "https://cdn-icons-png.flaticon.com/512/2967/2967350.png",
   iconSize: [40, 40]
 });
 
+// -----------------------------
+// 🏥 FETCH REAL HOSPITALS (OSM)
+// -----------------------------
+async function fetchHospitals() {
+  const query = `
+    [out:json];
+    node["amenity"="hospital"](12.90,77.55,13.05,77.75);
+    out;
+  `;
+
+  const url = "https://overpass-api.de/api/interpreter?data=" + encodeURIComponent(query);
+  const res = await fetch(url);
+  const data = await res.json();
+
+  const types = ["cardiac","neuro","trauma","maternity","general","pulmonology","urology","pediatric"];
+
+  return data.elements.map(h => ({
+    name: h.tags.name || "Hospital",
+    lat: h.lat,
+    lng: h.lon,
+    specialties: [types[Math.floor(Math.random() * types.length)]],
+    beds: Math.floor(Math.random() * 10) + 1,
+    waitTime: Math.floor(Math.random() * 10) + 5
+  }));
+}
 
 // -----------------------------
-// HOSPITAL SELECTION
+// 🧠 SELECT HOSPITAL
 // -----------------------------
 function selectHospital() {
-
-  // STEP 1: find specialists
   let specialists = hospitals.filter(h =>
     h.specialties.includes(patient.condition)
   );
 
-  // STEP 2: include multispeciality as fallback
   let multis = hospitals.filter(h =>
     h.specialties.includes("multispeciality")
   );
@@ -49,22 +72,13 @@ function selectHospital() {
     ? [...specialists, ...multis]
     : hospitals;
 
-  // STEP 3: scoring
   return eligible.reduce((best, h) => {
-    let distance = getDistance(h);
-
-    let isMulti = h.specialties.includes("multispeciality");
-
-    let score =
-      (distance * 2) +
-      (h.waitTime * 1.5) -
-      (h.beds * 2) +
-      (isMulti ? 3 : 0); // penalty for multispeciality
+    let dist = getDistance(h);
+    let score = (dist * 2) + (h.waitTime * 1.5) - (h.beds * 2);
 
     return (!best || score < best.score) ? { ...h, score } : best;
   }, null);
 }
-
 
 // -----------------------------
 // DISTANCE
@@ -76,32 +90,27 @@ function getDistance(h) {
   );
 }
 
-
 // -----------------------------
-// 🛣️ REAL ROUTE (OSRM)
+// 🛣️ ROUTE (OSRM)
 // -----------------------------
 async function getRoute(start, end) {
   const url = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
 
-  const response = await fetch(url);
-  const data = await response.json();
+  const res = await fetch(url);
+  const data = await res.json();
 
-  return data.routes[0].geometry.coordinates.map(coord => ({
-    lat: coord[1],
-    lng: coord[0]
+  return data.routes[0].geometry.coordinates.map(c => ({
+    lat: c[1],
+    lng: c[0]
   }));
 }
 
-
 // -----------------------------
-// TRAFFIC SIGNAL SYSTEM
+// 🚦 TRAFFIC SIGNALS
 // -----------------------------
 function createTrafficSignals(path) {
   for (let i = 20; i < path.length; i += 40) {
-    trafficSignals.push({
-      position: path[i],
-      status: "RED"
-    });
+    trafficSignals.push({ position: path[i] });
   }
 }
 
@@ -109,149 +118,144 @@ function displaySignals() {
   trafficSignals.forEach(signal => {
     let marker = L.circleMarker(
       [signal.position.lat, signal.position.lng],
-      {
-        radius: 8,
-        color: "red",
-        fillColor: "red",
-        fillOpacity: 1
-      }
+      { radius: 8, color: "red", fillColor: "red", fillOpacity: 1 }
     ).addTo(map);
 
     signalMarkers.push(marker);
   });
 }
 
-function updateSignals(currentPosition) {
-  trafficSignals.forEach((signal, index) => {
-    let distance = Math.sqrt(
-      Math.pow(signal.position.lat - currentPosition.lat, 2) +
-      Math.pow(signal.position.lng - currentPosition.lng, 2)
+function updateSignals(pos) {
+  trafficSignals.forEach((signal, i) => {
+    let d = Math.sqrt(
+      Math.pow(signal.position.lat - pos.lat, 2) +
+      Math.pow(signal.position.lng - pos.lng, 2)
     );
 
-    if (distance < 0.001) {
-      signalMarkers[index].setStyle({ color: "green", fillColor: "green" });
-    } else {
-      signalMarkers[index].setStyle({ color: "red", fillColor: "red" });
-    }
+    signalMarkers[i].setStyle({
+      color: d < 0.001 ? "green" : "red",
+      fillColor: d < 0.001 ? "green" : "red"
+    });
   });
 }
 
+// -----------------------------
+// 🏥 SHOW ALL HOSPITALS
+// -----------------------------
+function showHospitals() {
+  hospitals.forEach(h => {
+    let m = L.marker([h.lat, h.lng])
+      .addTo(map)
+      .bindPopup(`${h.name}<br>${h.specialties}`);
+
+    hospitalMarkers.push(m);
+  });
+}
 
 // -----------------------------
 // ETA
 // -----------------------------
 function updateETA() {
-  let remaining = path.length - step;
-  let eta = (remaining * 0.05).toFixed(1);
-
-  document.getElementById("hospital").innerText =
-    currentHospital.name + " | ETA: " + eta + " sec";
+  let eta = ((path.length - step) * 0.05).toFixed(1);
+  document.getElementById("hospital") &&
+    (document.getElementById("hospital").innerText =
+      currentHospital.name + " | ETA: " + eta + " sec");
 }
 
-
 // -----------------------------
-// MAP INIT (UPDATED 🔥)
+// MAP INIT
 // -----------------------------
 function initMap() {
-  map = L.map('map').setView([patient.lat, patient.lng], 14);
+  map = L.map('map').setView([patient.lat, patient.lng], 13);
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-  currentHospital = selectHospital();
+  // 🔥 Fetch real hospitals
+  fetchHospitals().then(data => {
+    hospitals = data;
 
-  document.getElementById("hospital").innerText = currentHospital.name;
+    showHospitals();
 
-  // 🚀 GET REAL ROUTE
-  getRoute(patient, currentHospital).then(route => {
-    path = route;
+    currentHospital = selectHospital();
 
-    L.polyline(path, { color: 'blue', weight: 5 }).addTo(map);
+    getRoute(patient, currentHospital).then(route => {
+      path = route;
 
-    ambulanceMarker = L.marker([path[0].lat, path[0].lng], {
-      icon: ambulanceIcon
-    }).addTo(map);
+      L.polyline(path, { color: 'blue', weight: 5 }).addTo(map);
 
-    L.marker([currentHospital.lat, currentHospital.lng])
-      .addTo(map)
-      .bindPopup("🏥 " + currentHospital.name);
+      ambulanceMarker = L.marker([path[0].lat, path[0].lng], {
+        icon: ambulanceIcon
+      }).addTo(map);
 
-    createTrafficSignals(path);
-    displaySignals();
+      createTrafficSignals(path);
+      displaySignals();
 
-    animate();
-    simulateVitals();
+      animate();
+      simulateVitals();
+    });
   });
 }
 
-
 // -----------------------------
-// ANIMATION
+// 🚑 ANIMATION (SMOOTH)
 // -----------------------------
 function animate() {
-  let i = 0;
-  let subStep = 0;
-  const stepsPerSegment = 5; // smoothness
+  let i = 0, sub = 0, steps = 5;
 
   setInterval(() => {
     if (i >= path.length - 1) return;
 
-    let start = path[i];
-    let end = path[i + 1];
+    let s = path[i], e = path[i + 1];
 
-    // interpolate between points
-    let lat = start.lat + (end.lat - start.lat) * (subStep / stepsPerSegment);
-    let lng = start.lng + (end.lng - start.lng) * (subStep / stepsPerSegment);
+    let lat = s.lat + (e.lat - s.lat) * (sub / steps);
+    let lng = s.lng + (e.lng - s.lng) * (sub / steps);
 
     ambulanceMarker.setLatLng([lat, lng]);
-
-    // smoother camera (less jumpy)
-    map.panTo([lat, lng], { animate: true, duration: 0.5 });
+    map.panTo([lat, lng]);
 
     updateSignals({ lat, lng });
     updateETA();
 
-    // 🚑 tracking text
-    if (i < path.length * 0.3) {
-      document.getElementById("trackingText").innerText = "🚑 Ambulance Dispatched";
-    } else if (i < path.length * 0.7) {
-      document.getElementById("trackingText").innerText = "🚦 Creating Green Corridor";
-    } else {
-      document.getElementById("trackingText").innerText = "🏥 Approaching Hospital";
+    // tracking text
+    const t = document.getElementById("trackingText");
+    if (t) {
+      if (i < path.length * 0.3) t.innerText = "🚑 Dispatched";
+      else if (i < path.length * 0.7) t.innerText = "🚦 Green Corridor";
+      else t.innerText = "🏥 Arriving";
     }
 
-    subStep++;
-
-    if (subStep >= stepsPerSegment) {
-      subStep = 0;
+    sub++;
+    if (sub >= steps) {
+      sub = 0;
       i++;
-      step = i; // keep ETA working
+      step = i;
     }
-
-  }, 50); // speed control (increase for slower)
+  }, 50);
 }
 
-
 // -----------------------------
-// VITALS
+// ❤️ VITALS
 // -----------------------------
 function simulateVitals() {
   setInterval(() => {
     heartRate = Math.floor(60 + Math.random() * 60);
     oxygen = Math.floor(85 + Math.random() * 15);
 
-    document.getElementById("heartRate").innerText = heartRate;
-    document.getElementById("oxygen").innerText = oxygen;
+    document.getElementById("heartRate") && (document.getElementById("heartRate").innerText = heartRate);
+    document.getElementById("oxygen") && (document.getElementById("oxygen").innerText = oxygen);
 
-    if (heartRate > 110 || oxygen < 90) {
-      document.getElementById("status").innerText = "CRITICAL 🔴";
-      document.getElementById("status").style.color = "red";
-    } else {
-      document.getElementById("status").innerText = "Stable 🟢";
-      document.getElementById("status").style.color = "green";
+    const status = document.getElementById("status");
+    if (status) {
+      if (heartRate > 110 || oxygen < 90) {
+        status.innerText = "CRITICAL 🔴";
+        status.style.color = "red";
+      } else {
+        status.innerText = "Stable 🟢";
+        status.style.color = "green";
+      }
     }
   }, 2000);
 }
-
 
 // -----------------------------
 // START
